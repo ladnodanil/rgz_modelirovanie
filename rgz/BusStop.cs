@@ -1,23 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace rgz
 {
-    
     public class BusStop
     {
-        public int SimulationTime { get; set; } // время симуляции прихода заявок (в минутах)
+        public int SimulationTime { get; set; }
 
-        const double mean = 1; // раз в N минут приход пассажиров
-        const double stddev = 0.87; // среднее отклонение
+        const double mean = 1;
+        const double stddev = 0.87;
 
-
-        private double meanBus; // раз в N минут для автобусов
-        private double meanMinibus; // раз в N минут для маршруток
+        private double meanBus;
+        private double meanMinibus;
 
         Random random = new Random();
 
@@ -31,32 +26,41 @@ namespace rgz
         private double totalQueueLength = 0;
         private int queueUpdateCount = 0;
 
-        public BusStop(int simulationTime,int numberOfBuses, int nubmerOfMinibuses)
+        private List<double> busLoadFactors;
+        private List<double> minibusLoadFactors;
+
+        public BusStop(int simulationTime, int numberOfBuses, int numberOfMinibuses)
         {
-            
             buses = new Queue<Bus>();
             minibuses = new Queue<Minibus>();
             passengers = new List<Passenger>();
             SimulationTime = simulationTime;
-            meanBus = simulationTime/ numberOfBuses;
-            meanMinibus = simulationTime / nubmerOfMinibuses;
+            meanBus = simulationTime / numberOfBuses;
+            meanMinibus = simulationTime / numberOfMinibuses;
+
+            busLoadFactors = new List<double>();
+            minibusLoadFactors = new List<double>();
         }
 
-        public (double,double,double) Simulate()
+        public (double, double, double, double) Simulate()
         {
             SimulatePassenger();
             SimulateBus();
             SimulateMinibus();
-            Console.WriteLine($"Среднее время пребывания на остановке: {CalculateAverageTimeAtStop():F1} минут");
-            Console.WriteLine($"Среднее время ожидания: {T_ozh / N:F1} минут");
-            Console.WriteLine($"Средняя длина очереди: {totalQueueLength / queueUpdateCount:F1}");
-            Console.WriteLine($"Осталось человек на остановке: {passengers.Count(p => p.HasNotLeft)}");
-            return (CalculateAverageTimeAtStop(), T_ozh / N, (int)totalQueueLength / queueUpdateCount);
-        }
+            
+            double avgWaitTime = T_ozh / N;
+            double avgQueueLength = totalQueueLength / queueUpdateCount;
 
+            
+            Console.WriteLine($"Среднее время ожидания: {avgWaitTime:F1} минут");
+            Console.WriteLine($"Средняя длина очереди: {avgQueueLength:F1}");
+            Console.WriteLine($"Осталось человек на остановке: {passengers.Count(p => p.HasNotLeft)}");
+
+            return (avgWaitTime, avgQueueLength, busLoadFactors.Average(), minibusLoadFactors.Average());
+        }
         public void SimulateBus()
         {
-           
+
             double t_prix_bus = 0;
             while (t_prix_bus < SimulationTime)
             {
@@ -65,7 +69,7 @@ namespace rgz
                 {
                     Bus bus = new Bus();
                     bus.ArrivalTime = t_prix_bus;
-                    
+
                     buses.Enqueue(bus);
                     BoardPassengers(t_prix_bus, TransportPreference.Bus);
                 }
@@ -74,7 +78,7 @@ namespace rgz
 
         public void SimulateMinibus()
         {
-            
+
             double t_prix_minibus = 0;
             while (t_prix_minibus < SimulationTime)
             {
@@ -83,7 +87,7 @@ namespace rgz
                 {
                     Minibus minibus = new Minibus();
                     minibus.ArrivalTime = t_prix_minibus;
-                    
+
                     minibuses.Enqueue(minibus);
                     BoardPassengers(t_prix_minibus, TransportPreference.Minibus);
                 }
@@ -100,7 +104,6 @@ namespace rgz
                 int boardedPassengers = 0;
                 int passengersInQueue = 0;
 
-
                 foreach (var passenger in passengers)
                 {
                     if (passenger.ArrivalTime <= currentTime && passenger.HasNotLeft &&
@@ -110,15 +113,13 @@ namespace rgz
                     }
                     else if (passenger.ArrivalTime > currentTime)
                     {
-                        break; // прерываем цикл, так как остальные пассажиры еще не пришли
+                        break;
                     }
                 }
 
-                // Учитываем текущую длину очереди для расчета средней длины
                 totalQueueLength += passengersInQueue;
                 queueUpdateCount++;
 
-                
                 foreach (var passenger in passengers)
                 {
                     if (passenger.ArrivalTime <= currentTime && passenger.HasNotLeft &&
@@ -128,39 +129,35 @@ namespace rgz
                         Console.WriteLine($"Пассажир, пришедший в {ConvertMinutesToTimeString(passenger.ArrivalTime)}, ожидает {transport.ArrivalTime - passenger.ArrivalTime:F1} минут");
                         T_ozh += (transport.ArrivalTime - passenger.ArrivalTime);
                         N++;
-                        passenger.WaitingTime = (transport.ArrivalTime - passenger.ArrivalTime);
                         boardedPassengers++;
                         remainingCapacity--;
-                        passenger.HasNotLeft = false; // Обновляем статус пассажира
+                        passenger.HasNotLeft = false;
                     }
                 }
 
-                Console.WriteLine($"{(transportType == TransportPreference.Bus ? "Автобус" : "Маршрутка")} прибыл {ConvertMinutesToTimeString(currentTime)}, забрал {boardedPassengers} пассажиров.");
-                Console.WriteLine("Занятых мест: " + transport.OccupiedPlaces);
-                Console.WriteLine($"Очередь: {passengersInQueue}\n"); 
-            }
-        }
+                double loadFactorBefore = (double)transport.OccupiedPlaces / transport.MaxCapacity;
+                transport.OccupiedPlaces += boardedPassengers;
+                double loadFactorAfter = (double)transport.OccupiedPlaces / transport.MaxCapacity;
 
-        private double CalculateAverageTimeAtStop()
-        {
-            double totalTimeAtStop = 0;
-            foreach (var passenger in passengers)
-            {
-                if (passenger.HasNotLeft)
+                if (transportType == TransportPreference.Bus)
                 {
-                    totalTimeAtStop += SimulationTime - passenger.ArrivalTime; 
+                    busLoadFactors.Add(loadFactorAfter);
                 }
                 else
                 {
-                    totalTimeAtStop += passenger.WaitingTime; 
+                    minibusLoadFactors.Add(loadFactorAfter);
                 }
+
+                Console.WriteLine($"{(transportType == TransportPreference.Bus ? "Автобус" : "Маршрутка")} прибыл {ConvertMinutesToTimeString(currentTime)}, забрал {boardedPassengers} пассажиров.");
+                Console.WriteLine($"Загруженность до: {loadFactorBefore:F2}");
+                Console.WriteLine($"Загруженность после: {loadFactorAfter:F2}");
+                Console.WriteLine($"Очередь: {passengersInQueue}\n");
             }
-            return totalTimeAtStop / passengers.Count;
         }
+
         public void SimulatePassenger()
         {
             double t_prix = 0;
-           
             while (t_prix < SimulationTime)
             {
                 t_prix += NormalDistribution(mean, stddev, random);
@@ -168,33 +165,28 @@ namespace rgz
                 {
                     Passenger passenger = new Passenger();
                     passenger.ArrivalTime = t_prix;
-                    passenger.Preference = (TransportPreference)random.Next(0, 3);
-                    
-                    passenger.HasNotLeft = true; // Пассажир еще не уехал
+                    passenger.Preference = (TransportPreference)random.Next(0, 2);
+                    passenger.HasNotLeft = true;
                     passengers.Add(passenger);
-
                 }
             }
         }
 
         private string ConvertMinutesToTimeString(double minutes)
         {
-            int totalSeconds = (int)(minutes * 60); 
-            int hours = 12 + totalSeconds / 3600; 
-            int mins = (totalSeconds % 3600) / 60; 
-            int secs = totalSeconds % 60; 
-
-            return $"{hours:D2}:{mins:D2}:{secs:D2}"; // Возвращаем форматированную строку времени
+            int totalSeconds = (int)(minutes * 60);
+            int hours = 12 + totalSeconds / 3600;
+            int mins = (totalSeconds % 3600) / 60;
+            int secs = totalSeconds % 60;
+            return $"{hours:D2}:{mins:D2}:{secs:D2}";
         }
 
         public static double NormalDistribution(double mean, double stddev, Random random)
         {
-            // Метод Бокса-Мюллера для генерации нормально распределенных случайных чисел
             double u1 = 1.0 - random.NextDouble();
             double u2 = 1.0 - random.NextDouble();
             double randStdNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2);
             return mean + stddev * randStdNormal;
         }
     }
-
 }

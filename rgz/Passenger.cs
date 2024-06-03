@@ -16,8 +16,6 @@ namespace rgz
     {
         public double ArrivalTime { get; set; }
 
-        public double WaitingTime { get; set; }
-
         public TransportPreference Preference { get; set; }
 
         public bool HasNotLeft { get; set; }
